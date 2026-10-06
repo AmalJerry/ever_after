@@ -35,7 +35,7 @@ jobs:
       DJANGO_LOAD_DOTENV: "false"
       DJANGO_DEBUG: "true"
       DJANGO_SECRET_KEY: ci-only-django-secret-used-for-disposable-tests-not-production
-      DJANGO_MEDIA_ROOT: ${{ runner.temp }}/ever-after-media
+      DJANGO_MEDIA_ROOT: /tmp/ever-after-ci-media
       DATABASE_URL: postgresql://postgres:ci-only-postgres-password@127.0.0.1:5432/ever_after?sslmode=disable
       DJANGO_API_ORIGIN: http://127.0.0.1:8000
       NEXT_TELEMETRY_DISABLED: "1"
