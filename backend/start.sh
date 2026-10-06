@@ -6,4 +6,4 @@ if [ "${DJANGO_ALLOW_EPHEMERAL_SQLITE:-false}" = "true" ] && [ -z "${DATABASE_UR
 	printf '%s\n' 'WARNING: Free Render SQLite and uploads are temporary. Sleep, restart, or redeploy can erase all accounts, stories, and media.' >&2
 fi
 bash predeploy.sh
-exec python -m gunicorn config.wsgi:application --config gunicorn.conf.py
+exec python -m gunicorn config.wsgi:application --config gunicorn.conf.py --bind "0.0.0.0:${PORT:-10000}"

@@ -79,6 +79,14 @@ Remove any old `DJANGO_API_HOSTPORT` or localhost API value from the frontend en
 
 For a custom domain, attach it to the frontend, finish HTTPS setup, and update the backend's `PUBLIC_SITE_URL`. For additional active frontend origins, set `DJANGO_CSRF_TRUSTED_ORIGINS` to their exact comma-separated HTTPS origins. Never use wildcards or disable CSRF. The secret remains required, and secure HTTP-only cookies are preserved even in this disposable setup.
 
+## Port Scan Timeouts
+
+The frontend and backend run in separate services, each with its own `PORT`. They do not need different port numbers, and they do not share a listener. Public Render HTTPS URLs use port 443; never append the internal `3000` or `10000` port to `DJANGO_API_ORIGIN` or `PUBLIC_SITE_URL`.
+
+If Render scans port `3000` but Gunicorn logs `Listening at: http://0.0.0.0:10000`, set the backend's `PORT` to `10000`, clear any conflicting `GUNICORN_CMD_ARGS`, and redeploy the latest `main` with `bash start.sh`. The script explicitly binds to `0.0.0.0:$PORT`, which takes precedence over environment-provided Gunicorn bind options. Use `/api/health/` for the backend health check, not `/`.
+
+For the frontend, replace Render's suggested `yarn` commands with the npm build/start commands above. Either leave `PORT` unset so Render assigns it, or set it to `10000`; the documented start command uses `$PORT` automatically. Add only the frontend variables `DJANGO_API_ORIGIN` and `NEXT_TELEMETRY_DISABLED`; do not copy the backend's Django secret, database path, or media path into this service. Once Render assigns the frontend URL, put it in the backend's `PUBLIC_SITE_URL` and redeploy the backend before creating stories.
+
 ## Build and Startup
 
 - [backend/start.sh](../backend/start.sh) creates the database/media directories, warns about temporary storage, calls [backend/predeploy.sh](../backend/predeploy.sh) to migrate and create the cache table, checks deployment security, and then starts Gunicorn.

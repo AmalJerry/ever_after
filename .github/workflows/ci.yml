@@ -85,6 +85,7 @@ jobs:
           python -m gunicorn config.wsgi:application --config gunicorn.conf.py --check-config
       - name: Free SQLite startup and restart checks
         working-directory: backend
+        shell: bash
         env:
           RENDER: "true"
           DJANGO_DEBUG: "false"
@@ -95,9 +96,11 @@ jobs:
           DJANGO_MEDIA_ROOT: ${{ runner.temp }}/ever-after-sqlite/media
           PUBLIC_SITE_URL: https://ever-after-test.onrender.com
           RENDER_EXTERNAL_HOSTNAME: ever-after-api-test.onrender.com
-          GUNICORN_CMD_ARGS: --check-config
+          PORT: "3000"
+          GUNICORN_CMD_ARGS: --print-config --bind=0.0.0.0:10000
         run: |
-          bash start.sh
+          bash start.sh | tee "$RUNNER_TEMP/free-sqlite-startup.log"
+          grep -Fxq "bind = ['0.0.0.0:3000']" "$RUNNER_TEMP/free-sqlite-startup.log"
           python manage.py shell -c "from django.contrib.auth import get_user_model; from django.core.cache import cache; get_user_model().objects.create_user('startup-check'); cache.set('startup-check', 'kept', 300)"
           bash start.sh
           python manage.py shell -c "from django.contrib.auth import get_user_model; from django.core.cache import cache; from django.test import Client; assert get_user_model().objects.filter(username='startup-check').exists(); assert cache.get('startup-check') == 'kept'; assert Client(HTTP_HOST='localhost').get('/api/health/').status_code == 200"
