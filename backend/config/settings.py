@@ -59,16 +59,13 @@ MIDDLEWARE = [
 ]
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
-DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
 database_url = os.environ.get("DATABASE_URL")
-if ON_RENDER and not database_url:
-    raise ImproperlyConfigured("DATABASE_URL is required on Render; ephemeral SQLite must not store production stories.")
 if database_url:
     parsed_database = urlsplit(database_url)
     if parsed_database.scheme not in {"postgres", "postgresql"}:
         raise ImproperlyConfigured("DATABASE_URL must be a PostgreSQL URL.")
     database_options = parse_qs(parsed_database.query)
-    DATABASES["default"] = {
+    DATABASES = {"default": {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": unquote(parsed_database.path.lstrip("/")),
         "USER": unquote(parsed_database.username or ""),
@@ -78,7 +75,21 @@ if database_url:
         "CONN_MAX_AGE": 60,
         "CONN_HEALTH_CHECKS": True,
         "OPTIONS": {"sslmode": database_options.get("sslmode", ["require"])[0], "connect_timeout": 5},
-    }
+    }}
+else:
+    sqlite_path = os.environ.get("DJANGO_SQLITE_PATH")
+    if ON_RENDER and (
+        os.environ.get("DJANGO_ALLOW_EPHEMERAL_SQLITE", "false").lower() != "true" or not sqlite_path
+    ):
+        raise ImproperlyConfigured("Set DATABASE_URL, or explicitly enable disposable storage with DJANGO_ALLOW_EPHEMERAL_SQLITE=true and an absolute DJANGO_SQLITE_PATH. Free Render storage is lost on sleep, restart, or redeploy.")
+    sqlite_database = Path(sqlite_path or str(BASE_DIR / "db.sqlite3"))
+    if not sqlite_database.is_absolute():
+        raise ImproperlyConfigured("DJANGO_SQLITE_PATH must be an absolute path.")
+    DATABASES = {"default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": sqlite_database,
+        "OPTIONS": {"timeout": 20},
+    }}
 
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 if not DEBUG:
@@ -105,7 +116,7 @@ USE_I18N = True
 USE_TZ = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 if ON_RENDER and not os.environ.get("DJANGO_MEDIA_ROOT"):
-    raise ImproperlyConfigured("Set DJANGO_MEDIA_ROOT to the persistent disk's media directory on Render.")
+    raise ImproperlyConfigured("Set DJANGO_MEDIA_ROOT to an absolute media directory on Render; free service storage is temporary.")
 MEDIA_ROOT = Path(os.environ.get("DJANGO_MEDIA_ROOT") or str(BASE_DIR / "media"))
 if not MEDIA_ROOT.is_absolute():
     raise ImproperlyConfigured("DJANGO_MEDIA_ROOT must be an absolute path.")

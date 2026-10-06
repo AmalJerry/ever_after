@@ -68,6 +68,10 @@ jobs:
         run: |
           python backend/manage.py test stories --noinput
           python backend/manage.py makemigrations --check --dry-run
+      - name: SQLite backend tests
+        env:
+          DATABASE_URL: ""
+        run: python backend/manage.py test stories --noinput
       - name: Production configuration and WSGI checks
         working-directory: backend
         env:
@@ -79,6 +83,24 @@ jobs:
         run: |
           bash predeploy.sh
           python -m gunicorn config.wsgi:application --config gunicorn.conf.py --check-config
+      - name: Free SQLite startup and restart checks
+        working-directory: backend
+        env:
+          RENDER: "true"
+          DJANGO_DEBUG: "false"
+          DJANGO_TRUST_PROXY: "true"
+          DATABASE_URL: ""
+          DJANGO_ALLOW_EPHEMERAL_SQLITE: "true"
+          DJANGO_SQLITE_PATH: ${{ runner.temp }}/ever-after-sqlite/db.sqlite3
+          DJANGO_MEDIA_ROOT: ${{ runner.temp }}/ever-after-sqlite/media
+          PUBLIC_SITE_URL: https://ever-after-test.onrender.com
+          RENDER_EXTERNAL_HOSTNAME: ever-after-api-test.onrender.com
+          GUNICORN_CMD_ARGS: --check-config
+        run: |
+          bash start.sh
+          python manage.py shell -c "from django.contrib.auth import get_user_model; from django.core.cache import cache; get_user_model().objects.create_user('startup-check'); cache.set('startup-check', 'kept', 300)"
+          bash start.sh
+          python manage.py shell -c "from django.contrib.auth import get_user_model; from django.core.cache import cache; from django.test import Client; assert get_user_model().objects.filter(username='startup-check').exists(); assert cache.get('startup-check') == 'kept'; assert Client(HTTP_HOST='localhost').get('/api/health/').status_code == 200"
       - name: Frontend lint and build
         run: |
           npm --prefix frontend run lint

@@ -1,18 +1,14 @@
 services:
-  - type: pserv
+  - type: web
     name: ever-after-api
     runtime: python
     region: oregon
-    plan: 1c-2g
+    plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    preDeployCommand: bash predeploy.sh
     startCommand: bash start.sh
+    healthCheckPath: /api/health/
     autoDeployTrigger: checksPass
-    disk:
-      name: private-media
-      mountPath: /var/data
-      sizeGB: 5
     envVars:
       - key: DJANGO_DEBUG
         value: "false"
@@ -20,19 +16,14 @@ services:
         generateValue: true
       - key: DJANGO_TRUST_PROXY
         value: "true"
+      - key: DJANGO_ALLOW_EPHEMERAL_SQLITE
+        value: "true"
+      - key: DJANGO_SQLITE_PATH
+        value: /tmp/ever-after/db.sqlite3
       - key: DJANGO_MEDIA_ROOT
-        value: /var/data/media
+        value: /tmp/ever-after/media
       - key: PUBLIC_SITE_URL
         sync: false
-      - key: DJANGO_INTERNAL_HOST
-        fromService:
-          name: ever-after-api
-          type: pserv
-          property: host
-      - key: DATABASE_URL
-        fromDatabase:
-          name: ever-after-db
-          property: connectionString
       - key: PORT
         value: "10000"
       - key: WEB_CONCURRENCY
@@ -44,26 +35,14 @@ services:
     name: ever-after
     runtime: node
     region: oregon
-    plan: 0.5c-512mb
+    plan: free
     rootDir: frontend
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start -- --hostname 0.0.0.0 --port $PORT
-    healthCheckPath: /api/health/
+    healthCheckPath: /
     autoDeployTrigger: checksPass
     envVars:
-      - key: DJANGO_API_HOSTPORT
-        fromService:
-          name: ever-after-api
-          type: pserv
-          property: hostport
+      - key: DJANGO_API_ORIGIN
+        sync: false
       - key: NEXT_TELEMETRY_DISABLED
         value: "1"
-
-databases:
-  - name: ever-after-db
-    region: oregon
-    plan: 0.1c-256mb
-    postgresMajorVersion: "17"
-    databaseName: ever_after
-    user: ever_after
-    ipAllowList: []

@@ -1,81 +1,114 @@
-# Render Deployment
+# Render Free Demo with SQLite
 
 ## Deployment Shape
 
-[render.yaml](../render.yaml) defines three resources in the same Render region:
+[render.yaml](../render.yaml) defines two public web services on Render's Free compute plan:
 
 | Resource | Purpose |
 | --- | --- |
-| `ever-after` | Public Node.js 24 service running the production Next.js build |
-| `ever-after-api` | Private Python 3.11 service running Gunicorn and Django |
-| `ever-after-db` | PostgreSQL 17 with external database access disabled |
+| `ever-after` | Node.js 24 running the production Next.js build |
+| `ever-after-api` | Python 3.11 running Gunicorn, Django, and a local SQLite file |
 
-The API has a 5 GB persistent disk mounted at `/var/data`; uploads live in `/var/data/media`. The browser reaches Django only through Next.js `/api/` rewrites. Never expose that disk through a public static-file route or move private API images into an image CDN.
+There is no managed database or persistent disk. The API writes SQLite to `/tmp/ever-after/db.sqlite3` and uploads to `/tmp/ever-after/media`. The browser still uses same-origin `/api/` requests; Next.js proxies them to the backend's public HTTPS address. Free web services cannot receive private-network traffic, so do not use an internal hostname or `DJANGO_API_HOSTPORT` for this setup.
 
-**This is a paid deployment.** Private services, persistent disks, the selected web service, and the database are not a free-only setup. Review Render's current estimate before creating the Blueprint. This repository does not provision services merely by being pushed to GitHub.
+**This is a disposable demo, not durable hosting. Expect saved accounts, sessions, stories, share links, and uploads to be lost when the backend sleeps, restarts, or redeploys.** A path under `/tmp` does not provide persistent storage. Do not use this profile for irreplaceable birthday content or promise that published links will survive until their configured expiry.
+
+Render's [free-service limits](https://render.com/docs/free) also apply: services sleep after inactivity, cold starts can take about a minute, and the two services share the workspace's free instance-hour allowance. If both run continuously, they can exhaust that allowance. Bandwidth/build limits can suspend the service or incur charges under your account's billing settings. Review those settings before deploying. Changing this file does not cancel any paid resources you previously created.
 
 ## Create the Blueprint
 
 1. In GitHub, confirm the `CI` workflow for the intended `main` commit is green. If Actions are disabled, enable them and run the workflow before deploying.
 2. In Render, choose **New > Blueprint**, connect `AmalJerry/ever_after`, select `main`, and use the root `render.yaml` file.
-3. Review the plans, region, persistent disk, and database. Enter `PUBLIC_SITE_URL` as the exact expected public frontend HTTPS origin, without a path, for example `https://your-service-name.onrender.com`. Do not copy that example literally or use the private API hostname.
-4. Create the resources. Render generates the Django secret and supplies the private API address and PostgreSQL connection string. Do not put these values in GitHub or source files.
-5. Check the frontend's actual assigned public URL. If Render adds a suffix or assigns a different hostname, update `PUBLIC_SITE_URL` on **ever-after-api** to that exact origin and redeploy the API before using the studio.
-6. Confirm both services are healthy and complete the smoke checks below before distributing private links.
+3. Confirm both services use `free` and that no database, disk, or pre-deploy command is listed. Render generates the Django secret; do not copy secrets into GitHub or chat.
+4. Enter `PUBLIC_SITE_URL` on the API as the expected public frontend HTTPS origin, and `DJANGO_API_ORIGIN` on the frontend as the expected public backend HTTPS origin. Neither may contain an `/api` path. These two values are specific to your services, not generated secrets.
+5. Check the actual assigned service URLs. If Render adds a suffix or assigns different names, correct both values. Redeploy the API after changing `PUBLIC_SITE_URL`, and rebuild/redeploy the frontend after changing `DJANGO_API_ORIGIN`. Finish this before creating any stories, because backend redeploys can erase them.
+6. Open the frontend URL and complete the smoke checks below. You can name the frontend `happy-birthday-ever-after` if that name is available; use its actual assigned URL in `PUBLIC_SITE_URL`.
 
-The first deployment creates an empty production database. Your ignored local SQLite database, accounts, stories, uploads, and environment files are not uploaded. Any migration of existing private data is a separate, explicit operation requiring a backup and a validated media copy.
+Every fresh backend filesystem starts with an empty database. Your ignored local SQLite file, accounts, stories, media, and environment files are not uploaded or modified. Do not commit them to GitHub. A secure transfer of existing data would be a separate operation and would still not make the free service's storage persistent.
 
-## Configuration
+## Manual Backend Setup
 
-| Variable | Service | Value |
-| --- | --- | --- |
-| `PUBLIC_SITE_URL` | API | Exact public HTTPS frontend origin; entered during Blueprint setup |
-| `DJANGO_DEBUG` | API | `false`; Render startup rejects development mode |
-| `DJANGO_SECRET_KEY` | API | Generated once by Render; keep stable across deploys |
-| `DATABASE_URL` | API | Blueprint-managed private PostgreSQL connection string |
-| `DJANGO_MEDIA_ROOT` | API | `/var/data/media`, on the persistent disk |
-| `DJANGO_INTERNAL_HOST` | API | Blueprint-managed private hostname, added to allowed hosts |
-| `DJANGO_TRUST_PROXY` | API | `true`, only behind the controlled private Render/Next proxy |
-| `DJANGO_API_HOSTPORT` | Frontend | Blueprint-managed API host and port; read at build time |
+If you are already on **New > Web Service**, these are the backend fields:
 
-`DJANGO_API_ORIGIN` overrides `DJANGO_API_HOSTPORT`; leave it unset on Render unless intentionally changing the architecture. Never leave a localhost API origin in the production frontend. Rebuild the frontend after changing either value because Next.js rewrites are compiled into the build.
+| Field | Value |
+| --- | --- |
+| Runtime | Python |
+| Branch | `main` |
+| Root Directory | `backend` |
+| Compute plan | Free |
+| Build Command | `pip install -r requirements.txt` |
+| Start Command | `bash start.sh` |
+| Pre-Deploy Command | Leave empty |
+| Health Check Path | `/api/health/` |
+| Persistent disk | None |
 
-For a custom domain, attach it to the **frontend**, finish its HTTPS setup, and change the API's `PUBLIC_SITE_URL`. If multiple public origins must remain active, set `DJANGO_CSRF_TRUSTED_ORIGINS` to a comma-separated list of their exact HTTPS origins. Do not use wildcards or disable CSRF. The API stays private; allowed API hosts and trusted browser origins serve different purposes.
+Set these backend environment variables exactly, except for the generated secret and your assigned frontend URL:
 
-Do not change the generated secret casually: rotating it invalidates existing sessions. Production cookies are secure, HTTP-only, and SameSite=Lax. The trusted HTTPS header must be provided by the controlled proxy, not an arbitrary publicly reachable backend.
+| Key | Value |
+| --- | --- |
+| `DJANGO_DEBUG` | `false` |
+| `DJANGO_SECRET_KEY` | Use Render's Generate button; keep the value private and stable |
+| `DJANGO_TRUST_PROXY` | `true` |
+| `DJANGO_ALLOW_EPHEMERAL_SQLITE` | `true` |
+| `DJANGO_SQLITE_PATH` | `/tmp/ever-after/db.sqlite3` |
+| `DJANGO_MEDIA_ROOT` | `/tmp/ever-after/media` |
+| `PUBLIC_SITE_URL` | Your frontend's actual HTTPS origin, without a path or trailing slash |
+| `PORT` | `10000` |
+| `WEB_CONCURRENCY` | `1` |
+| `GUNICORN_CMD_ARGS` | Leave empty |
+
+**Remove `DATABASE_URL` and `DJANGO_INTERNAL_HOST` from the backend form.** Do not enter `db.sqlite3` or `sqlite:///...` as a database URL. SQLite uses `DJANGO_SQLITE_PATH`. Render automatically provides its public backend hostname, which Django adds to allowed hosts. Do not import the local development environment file into Render or set `DJANGO_DEBUG=true`.
+
+## Manual Frontend Setup
+
+Create a second **Web Service** from the same repository:
+
+| Field | Value |
+| --- | --- |
+| Runtime | Node |
+| Branch | `main` |
+| Root Directory | `frontend` |
+| Compute plan | Free |
+| Build Command | `npm ci --include=dev && npm run build` |
+| Start Command | `npm run start -- --hostname 0.0.0.0 --port $PORT` |
+| Health Check Path | `/` |
+| `DJANGO_API_ORIGIN` environment variable | Actual backend public HTTPS origin, without `/api` or a trailing slash |
+| `NEXT_TELEMETRY_DISABLED` environment variable | `1` |
+
+Remove any old `DJANGO_API_HOSTPORT` or localhost API value from the frontend environment. Next.js compiles API rewrites during its build, so changing the API origin requires a rebuild. No browser CORS configuration is needed: browser API requests remain on the frontend origin.
+
+For a custom domain, attach it to the frontend, finish HTTPS setup, and update the backend's `PUBLIC_SITE_URL`. For additional active frontend origins, set `DJANGO_CSRF_TRUSTED_ORIGINS` to their exact comma-separated HTTPS origins. Never use wildcards or disable CSRF. The secret remains required, and secure HTTP-only cookies are preserved even in this disposable setup.
 
 ## Build and Startup
 
-- The frontend uses `npm ci --include=dev` and `npm run build`, then `next start` on Render's assigned port.
-- The API installs pinned runtime requirements. [backend/predeploy.sh](../backend/predeploy.sh) runs migrations, creates the shared database cache table, and runs `check --deploy --fail-level WARNING`.
-- Render mounts disks at runtime, not during build/predeploy. [backend/start.sh](../backend/start.sh) creates the media directory after mounting and starts Gunicorn.
-- The public `/api/health/` endpoint reaches Django and performs a database query. It returns a sanitized 503 if the database is unavailable. It does not check disk capacity or replace functional monitoring.
-- A persistent disk ties the API to one service instance and prevents zero-downtime replacement. Expect brief API interruptions during redeploys. Do not scale instances without moving private media to appropriate shared storage.
+- [backend/start.sh](../backend/start.sh) creates the database/media directories, warns about temporary storage, calls [backend/predeploy.sh](../backend/predeploy.sh) to migrate and create the cache table, checks deployment security, and then starts Gunicorn.
+- Database setup runs at startup, not during the build or a Render pre-deploy hook. An existing SQLite file is not deliberately deleted; a fresh Render instance can nevertheless discard that file and start empty.
+- The API's `/api/health/` endpoint performs a database query and returns a sanitized 503 when unavailable. The frontend health check uses `/` so its sample can load independently of an API cold start.
+- Keep a single Gunicorn worker. SQLite uses a 20-second lock timeout, but concurrent writes can still contend; this is a small demo configuration, not a scalable database service.
 - Subsequent deployments use `autoDeployTrigger: checksPass`. Do not bypass failing CI to publish an update.
 
-Gunicorn access logs contain only the method, status, and duration, not request paths or queries. Share tokens are secrets embedded in paths and media queries. Review Render/edge request logs and retention separately; do not enable URL logging or external analytics that captures private links or message content.
+Gunicorn access logs omit request paths and queries because share tokens are secrets. Review Render/edge request logging separately. Do not enable analytics that captures private links or messages. Authorized media endpoints and the image-optimizer restrictions remain in place; the API being publicly reachable does not grant access to drafts or uploads.
 
 ## Smoke Checks
 
 Run these manually on the final public HTTPS domain, not a localhost preview:
 
-1. Open `/api/health/`; expect HTTP 200 and `{"status":"ok"}`. Open `/` and `/studio` and verify bundled images and fonts load.
-2. Create a disposable account, sign out, and sign in again. Save and reload a draft. Confirm session and CSRF cookies are Secure and HttpOnly and that no CSRF or redirect-loop errors occur.
-3. Upload an owned photograph and a small animated image. Preview them, including reduced-motion stills. Publish and open the link in a separate private browser window without signing in.
-4. Confirm unpublished edits do not alter the published story. Revoke the link and verify both the story and previously copied protected media URLs are unavailable in that private window. Delete the test story afterward.
-5. Test on iOS Safari and Android Chrome: microphone permission, denial fallback, backgrounding, a real blow in a noisy room, after-candle music, replay, long text, and a small viewport. Synthetic Chromium tests cannot certify real microphone accuracy or every mobile audio policy.
-6. Redeploy once with a disposable story present and verify its database record and uploaded media survive. Then delete it. Confirm you can restore both the database and corresponding private files from a backup.
+1. Open the backend `/api/health/` and allow time for its cold start. Then open the frontend `/api/health/`; both should return HTTP 200 and `{"status":"ok"}`. A temporary proxy error while waking may require a retry.
+2. Open `/` and `/studio` on the frontend. Register a disposable account, sign out/in, save a draft, and reload. Confirm there are no CSRF failures or redirect loops.
+3. Upload an owned photo and small animation. Publish, open the link in a private browser window, and confirm unpublished edits remain private. Revoke it and verify the story and copied media URLs become unavailable. Delete the test story.
+4. Test the real microphone, denied-permission fallback, after-candle music, replay, and small screens on iOS Safari and Android Chrome. Automated Chromium tests do not establish real-device microphone accuracy.
+5. With only disposable data present, redeploy the backend and confirm it starts successfully with tables recreated as needed. Do not expect previous records or uploads to survive. Keep your original media elsewhere.
 
-Never run the automated browser suite against production. It creates test accounts and modifies stories. Use a disposable test database and media directory instead.
+Never run the automated browser suite against a deployed site containing real stories. It creates accounts and modifies data. CI uses disposable databases and media directories.
 
 ## Operations and Limits
 
-- Configure database and disk backups, retention, disk-capacity alerts, availability/error monitoring, and a tested restore procedure before relying on the service for irreplaceable content. Database backups do not include uploaded files. Per-account quotas do not cap total disk usage across all accounts.
-- The production database cache shares throttle state across Gunicorn threads/workers. DRF throttles are best-effort application limits, not a DDoS defense. Anonymous clients conservatively share the internal proxy's address budget (`NUM_PROXIES=0`); configure and verify edge rate limits/client-IP handling for a broader public launch rather than trusting arbitrary forwarded headers.
-- Next limits proxied bodies to 55 MB, and Django validates per-file limits and storage quotas. Review hosting/edge request limits as well. Audio/video signatures are checked, but malware scanning, transcoding, timed subtitles, and transcripts are not implemented.
-- There is no self-service account recovery or email verification. Establish a support policy before accepting general public registrations. Decide on privacy terms, deletion/retention rules, and a deployment-specific Content Security Policy appropriate to the intended audience.
-- Private links are bearer credentials. Anyone with a link can access its published content while valid; revocation cannot recall files already downloaded or captured.
-- Confirm distribution rights for the supplied GIFs and review the sample photograph/font licenses before a public launch. See [sample asset provenance](../README.md#sample-assets). Do not include personal media in the public repository.
+- Durable hosting requires a different storage plan. PostgreSQL remains supported through `DATABASE_URL`; a future paid deployment also needs persistent private media and backups. Remove the ephemeral opt-in when moving to that setup. This Blueprint provisions neither.
+- DRF database-backed throttles are best-effort limits, not DDoS protection. Anonymous requests may share a proxy address budget (`NUM_PROXIES=0`). Do not blindly trust client-provided forwarding headers or disable throttles.
+- Free backend restarts erase cache and session data along with stories. Expiry/revocation still applies while records exist, but it cannot prevent earlier data loss or recall already downloaded content.
+- Next limits proxied bodies to 55 MB; application file limits and quotas still apply. Total storage usage across accounts is not capped. Audio/video signatures are checked, but malware scanning, transcoding, subtitles, and transcripts are not implemented.
+- Account recovery and email verification are not implemented. Review privacy terms, monitoring, retention, and a suitable Content Security Policy before a broader launch.
+- Confirm rights for the supplied GIFs, sample photos, and fonts; see [sample asset provenance](../README.md#sample-assets). Keep personal data out of Git.
 
 ## Dependency Checks
 
@@ -83,4 +116,4 @@ CI audits Python runtime requirements and `npm audit --omit=dev --audit-level=mo
 
 The full npm audit still reports a development-only `braces` advisory, `GHSA-vfj7-8cjw-p6xm`, through `eslint-config-next` / `fast-glob` / `micromatch` (five dependency-chain entries). No compatible upstream fix was available at that check. It is not in the production dependency graph, but development packages are installed to build and lint. CI uses trusted repository configuration, read-only GitHub permissions, and no production credentials. Do not downgrade the patched framework with `npm audit fix --force` just to clear this report; track the upstream fix and reassess the risk when accepting untrusted build inputs.
 
-The [CI workflow](../.github/workflows/ci.yml) also tests PostgreSQL migrations, production configuration, Gunicorn configuration on Linux, frontend lint/build/types, and the browser/signal suite. Local Windows tests use SQLite; a passing local run alone does not verify PostgreSQL or Gunicorn on Render.
+The [CI workflow](../.github/workflows/ci.yml) tests both SQLite and PostgreSQL, deployment security, fresh SQLite startup and a second startup preserving an existing file, Gunicorn on Linux, frontend lint/build/types, and the browser/signal suite. The startup test does not claim that Render preserves a free instance's filesystem. Local Windows tests cannot verify the hosting platform's actual lifecycle.

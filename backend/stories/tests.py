@@ -39,7 +39,7 @@ class DeploymentSettingsTests(SimpleTestCase):
             else:
                 environment[key] = value
         return subprocess.run(
-            [sys.executable, "-c", "import json; from config import settings; print(json.dumps({'debug': settings.DEBUG, 'engine': settings.DATABASES['default']['ENGINE'], 'media': str(settings.MEDIA_ROOT), 'hosts': settings.ALLOWED_HOSTS, 'origins': settings.CSRF_TRUSTED_ORIGINS, 'secure': settings.SESSION_COOKIE_SECURE}))"],
+            [sys.executable, "-c", "import json; from config import settings; print(json.dumps({'debug': settings.DEBUG, 'engine': settings.DATABASES['default']['ENGINE'], 'database': str(settings.DATABASES['default']['NAME']), 'media': str(settings.MEDIA_ROOT), 'hosts': settings.ALLOWED_HOSTS, 'origins': settings.CSRF_TRUSTED_ORIGINS, 'secure': settings.SESSION_COOKIE_SECURE}))"],
             cwd=Path(__file__).resolve().parents[1], env=environment, text=True, capture_output=True, check=False,
         )
 
@@ -53,6 +53,36 @@ class DeploymentSettingsTests(SimpleTestCase):
         self.assertIn("ever-after-api.internal", settings["hosts"])
         self.assertIn("https://ever-after-test.onrender.com", settings["origins"])
         self.assertTrue(settings["media"].endswith("ever-after-deployment-test"))
+
+    def test_render_allows_explicit_disposable_sqlite(self):
+        database_path = str(Path(tempfile.gettempdir()) / "ever-after-deployment-test" / "db.sqlite3")
+        for database_url in (None, ""):
+            with self.subTest(database_url=database_url):
+                result = self.load_settings(
+                    DATABASE_URL=database_url,
+                    DJANGO_ALLOW_EPHEMERAL_SQLITE="true",
+                    DJANGO_SQLITE_PATH=database_path,
+                    DJANGO_INTERNAL_HOST=None,
+                    RENDER_EXTERNAL_HOSTNAME="ever-after-api-test.onrender.com",
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                settings = json.loads(result.stdout)
+                self.assertEqual(settings["engine"], "django.db.backends.sqlite3")
+                self.assertEqual(settings["database"], database_path)
+                self.assertFalse(settings["debug"])
+                self.assertTrue(settings["secure"])
+                self.assertIn("ever-after-api-test.onrender.com", settings["hosts"])
+
+    def test_render_sqlite_requires_opt_in_and_absolute_path(self):
+        for overrides in (
+            {"DJANGO_SQLITE_PATH": str(Path(tempfile.gettempdir()) / "db.sqlite3")},
+            {"DJANGO_ALLOW_EPHEMERAL_SQLITE": "true"},
+            {"DJANGO_ALLOW_EPHEMERAL_SQLITE": "true", "DJANGO_SQLITE_PATH": "relative/db.sqlite3"},
+            {"DATABASE_URL": "sqlite:///db.sqlite3"},
+        ):
+            with self.subTest(overrides=overrides):
+                result = self.load_settings(**{"DATABASE_URL": None, **overrides})
+                self.assertNotEqual(result.returncode, 0)
 
     def test_render_rejects_unsafe_or_missing_configuration(self):
         for setting, value in [

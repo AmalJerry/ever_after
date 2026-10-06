@@ -13,4 +13,4 @@ The interactive sample is at http://127.0.0.1:3000. Accounts, uploads, saves, an
 
 For a production preview, build first, stop the development server, then run `npm --prefix frontend run start -- --hostname 127.0.0.1 --port 3000`.
 
-See the [project setup and verification guide](../README.md), [architecture](../docs/architecture.md), and [Render deployment runbook](../docs/render-deploy.md). Do not deploy this frontend alone: production stories require the private backend, PostgreSQL, and persistent media storage.
+See the [project setup and verification guide](../README.md), [architecture](../docs/architecture.md), and [Render deployment runbook](../docs/render-deploy.md). Accounts, uploads, and sharing require a backend. The free Render profile uses temporary SQLite/media storage and public HTTPS API proxying; data does not survive reliably across sleep, restart, or redeployment. Durable hosting needs a separate persistent-storage configuration.
