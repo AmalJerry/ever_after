@@ -1,0 +1,69 @@
+services:
+  - type: pserv
+    name: ever-after-api
+    runtime: python
+    region: oregon
+    plan: 1c-2g
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    preDeployCommand: bash predeploy.sh
+    startCommand: bash start.sh
+    autoDeployTrigger: checksPass
+    disk:
+      name: private-media
+      mountPath: /var/data
+      sizeGB: 5
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_TRUST_PROXY
+        value: "true"
+      - key: DJANGO_MEDIA_ROOT
+        value: /var/data/media
+      - key: PUBLIC_SITE_URL
+        sync: false
+      - key: DJANGO_INTERNAL_HOST
+        fromService:
+          name: ever-after-api
+          type: pserv
+          property: host
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ever-after-db
+          property: connectionString
+      - key: PORT
+        value: "10000"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: GUNICORN_CMD_ARGS
+        value: ""
+
+  - type: web
+    name: ever-after
+    runtime: node
+    region: oregon
+    plan: 0.5c-512mb
+    rootDir: frontend
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start -- --hostname 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health/
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: DJANGO_API_HOSTPORT
+        fromService:
+          name: ever-after-api
+          type: pserv
+          property: hostport
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+
+databases:
+  - name: ever-after-db
+    region: oregon
+    plan: 0.1c-256mb
+    postgresMajorVersion: "17"
+    databaseName: ever_after
+    user: ever_after
+    ipAllowList: []
