@@ -303,7 +303,7 @@ class ExperienceTests(APITestCase):
         self.assertEqual(public["presentation"]["celebrationMedia"]["url"], f"{asset['url']}?share={token}")
         media = APIClient().get(public["presentation"]["celebrationMedia"]["url"])
         self.assertEqual(media.status_code, 200)
-        media.close()
+        self.assertTrue(b"".join(media.streaming_content))
 
     def test_uploaded_images_are_normalized_and_private(self):
         asset = self.image_upload()
@@ -311,7 +311,7 @@ class ExperienceTests(APITestCase):
         response = self.client.get(asset["url"])
         self.assertEqual(response["Content-Type"], "image/webp")
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
-        response.close()
+        self.assertTrue(b"".join(response.streaming_content))
 
     def test_gif_upload_keeps_animation_and_protects_its_still(self):
         output = io.BytesIO()
@@ -335,7 +335,7 @@ class ExperienceTests(APITestCase):
         token = self.publish()
         shared_still = APIClient().get(f"{asset['stillUrl']}?share={token}")
         self.assertEqual(shared_still.status_code, 200)
-        shared_still.close()
+        self.assertTrue(b"".join(shared_still.streaming_content))
         self.client.post(f"{self.url}unpublish/", {}, format="json")
         self.assertEqual(APIClient().get(f"{asset['stillUrl']}?share={token}").status_code, 404)
         draft["presentation"]["finaleMedia"] = {"url": "/images/flowers.jpg", "stillUrl": asset["url"], "alt": "Invalid animated still"}
@@ -356,7 +356,7 @@ class ExperienceTests(APITestCase):
         shared = APIClient()
         response = shared.get(f"{first['url']}?share={token}")
         self.assertEqual(response.status_code, 200)
-        response.close()
+        self.assertTrue(b"".join(response.streaming_content))
         self.assertEqual(shared.get(f"{unused['url']}?share={token}").status_code, 404)
         self.client.post(f"{self.url}unpublish/", {}, format="json")
         self.assertEqual(shared.get(f"{first['url']}?share={token}").status_code, 404)
