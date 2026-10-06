@@ -100,7 +100,7 @@ jobs:
           GUNICORN_CMD_ARGS: --print-config --bind=0.0.0.0:10000
         run: |
           bash start.sh | tee "$RUNNER_TEMP/free-sqlite-startup.log"
-          grep -Fxq "bind = ['0.0.0.0:3000']" "$RUNNER_TEMP/free-sqlite-startup.log"
+          grep -Eq "^bind[[:space:]]*=[[:space:]]*\['0\.0\.0\.0:3000'\]$" "$RUNNER_TEMP/free-sqlite-startup.log"
           python manage.py shell -c "from django.contrib.auth import get_user_model; from django.core.cache import cache; get_user_model().objects.create_user('startup-check'); cache.set('startup-check', 'kept', 300)"
           bash start.sh
           python manage.py shell -c "from django.contrib.auth import get_user_model; from django.core.cache import cache; from django.test import Client; assert get_user_model().objects.filter(username='startup-check').exists(); assert cache.get('startup-check') == 'kept'; assert Client(HTTP_HOST='localhost').get('/api/health/').status_code == 200"
